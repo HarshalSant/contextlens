@@ -18,6 +18,7 @@ from huggingface_hub import HfApi, whoami
 
 REPO_ROOT = Path(__file__).parent.parent
 SPACE_NAME = "contextlens"
+# HF username: Harshal0610
 
 
 def main() -> None:

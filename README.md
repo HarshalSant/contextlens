@@ -2,9 +2,10 @@
 
 > **py-spy / pprof, but for what's inside your prompt.**
 
-[![CI](https://github.com/contextlens/contextlens/actions/workflows/ci.yml/badge.svg)](https://github.com/contextlens/contextlens/actions)
+[![CI](https://github.com/HarshalSant/contextlens/actions/workflows/ci.yml/badge.svg)](https://github.com/HarshalSant/contextlens/actions)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![HF Space](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Live%20Demo-blue)](https://huggingface.co/spaces/Harshal0610/contextlens)
 
 A diagnostic profiler for LLM agent context windows. It does **not** optimize or compress anything — it makes context waste **visible and quantified** so you can act on it.
 
