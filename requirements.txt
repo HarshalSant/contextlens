@@ -1,7 +1,3 @@
-# Install the contextlens package from local source
-.
-# Additional runtime deps (already in pyproject.toml but listed explicitly
-# so HF Spaces installs them even before running pip install .)
 gradio==5.9.1
 pandas>=2.0.0
 tiktoken>=0.7.0
