@@ -9,8 +9,7 @@
 
 A diagnostic profiler for LLM agent context windows. It does **not** optimize or compress anything — it makes context waste **visible and quantified** so you can act on it.
 
-<!-- Replace the line below with an actual screenshot/GIF after running `python examples/demo.py` and opening demo_report.html -->
-![ContextLens treemap report](docs/treemap_placeholder.png)
+![ContextLens treemap report](docs/treemap_screenshot.svg)
 
 ---
 

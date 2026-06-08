@@ -1,0 +1,32 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  id-token: write  # OIDC trusted publisher — no API token needed
+
+jobs:
+  publish:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    environment: pypi
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build
+        run: pip install build
+
+      - name: Build
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
