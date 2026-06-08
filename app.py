@@ -1,139 +1,315 @@
-"""
-ContextLens — Hugging Face Spaces Gradio app.
-
-Two entry points:
-  Tab 1: Run the built-in 30-turn demo (no upload needed).
-  Tab 2: Upload your own trace JSON and get a full analysis.
-"""
+"""ContextLens — Hugging Face Spaces Gradio app (Gradio 5 compatible)."""
 
 from __future__ import annotations
 
 import json
 import sys
 import tempfile
+import traceback
 from pathlib import Path
 
-# Allow import when running directly without installing the package
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Install the local package if running from the repo root (HF Spaces)
+_root = Path(__file__).parent
+if (_root / "src" / "contextlens").exists():
+    sys.path.insert(0, str(_root / "src"))
 
 import gradio as gr
 import pandas as pd
 
-from contextlens.analyzer import analyze_trace
-from contextlens.capture import _dict_to_trace
-from contextlens.models import Report
-from contextlens.reporter import render_html_report
+# ---------------------------------------------------------------------------
+# Lazy import with a friendly error if the package isn't available
+# ---------------------------------------------------------------------------
+try:
+    from contextlens.analyzer import analyze_trace
+    from contextlens.capture import _dict_to_trace
+    from contextlens.models import Report
+    from contextlens.reporter import render_html_report
+    _IMPORT_OK = True
+    _IMPORT_ERROR = ""
+except Exception as e:
+    _IMPORT_OK = False
+    _IMPORT_ERROR = traceback.format_exc()
+
 
 # ---------------------------------------------------------------------------
-# Reuse the demo trace builder from examples/demo.py
+# Demo trace builder — inlined so we have ZERO dependency on examples/demo.py
 # ---------------------------------------------------------------------------
 
-sys.path.insert(0, str(Path(__file__).parent / "examples"))
-from demo import build_demo_trace  # type: ignore[import]
+import hashlib
+import uuid
+from datetime import datetime, timedelta
+
+
+_SYSTEM_PROMPT = """\
+You are a professional software engineering assistant helping a team build a SaaS application.
+You have access to tools for searching code, reading files, running tests, and querying databases.
+Always be precise, cite relevant code when possible, and suggest tests for any changes you make.
+Follow the team's coding standards: Python 3.11+, typed, ruff-clean, pytest for tests.
+Do not make breaking changes without explicit approval.\
+""".strip()
+
+_TOOL_SCHEMAS = [
+    {
+        "name": "search_code",
+        "description": "Search the codebase for a pattern.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pattern": {"type": "string"},
+                "path": {"type": "string"},
+            },
+            "required": ["pattern"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": "Read the contents of a file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "run_tests",
+        "description": "Execute the test suite or a subset of tests.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target": {"type": "string"},
+                "flags": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "query_database",
+        "description": "Run a read-only SQL query against the production database.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"sql": {"type": "string"}},
+            "required": ["sql"],
+        },
+    },
+    # Defined every turn, never called → triggers unused_tool_schema detector
+    {
+        "name": "send_email",
+        "description": "Send an email notification to a team member.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string"},
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+            },
+            "required": ["to", "subject", "body"],
+        },
+    },
+]
+
+_STALE_RETRIEVAL = """\
+retrieved document: Architecture Decision Record #42
+source: docs/adr/0042-database-strategy.md
+excerpt: We evaluated three database strategies for the user data store: PostgreSQL with
+row-level security, MongoDB with document-level permissions, and a hybrid approach using
+PostgreSQL for structured data and Redis for session caching. After a 2-week POC we selected
+PostgreSQL with row-level security because it aligns with our existing operational expertise,
+supports complex relational queries needed for billing, and integrates cleanly with SQLAlchemy.
+Migration path: existing MySQL tables migrated via Alembic with zero-downtime blue-green deploys.
+Performance target: p99 query latency < 50ms for all user-facing endpoints.\
+""".strip()
+
+_SEARCH_RESULT = """\
+search_code result for pattern='class UserService':
+  File: src/services/user_service.py, line 42
+  class UserService:
+      def __init__(self, db: Database, cache: RedisCache) -> None:
+          self.db = db; self.cache = cache
+      def get_user(self, user_id: int) -> User | None:
+          cached = self.cache.get(f'user:{user_id}')
+          if cached: return User.model_validate(cached)
+          user = self.db.query(User).filter_by(id=user_id).first()
+          if user: self.cache.set(f'user:{user_id}', user.model_dump(), ttl=300)
+          return user
+      def create_user(self, payload: CreateUserRequest) -> User:
+          if self.db.query(User).filter_by(email=payload.email).first():
+              raise DuplicateEmailError(payload.email)
+          user = User(**payload.model_dump())
+          self.db.add(user); self.db.commit()
+          self.cache.invalidate('user:*'); return user\
+""".strip()
+
+_REPEAT_PREFIX = "Please continue working on the authentication module."
+
+
+def _build_demo_trace() -> dict:
+    base_time = datetime(2024, 6, 1, 10, 0, 0)
+    turns = []
+    messages: list[dict] = []
+
+    steps = [
+        ("I'll start by searching for the existing auth code.", ["search_code"]),
+        ("I found the UserService. Let me read the auth implementation.", ["read_file"]),
+        ("Now I have a clear picture. I'll design the JWT migration.", []),
+        (f"{_STALE_RETRIEVAL}\n\n{_REPEAT_PREFIX}", []),
+        ("Here is the JWTService implementation:\n```python\nclass JWTService:\n    def encode(self, user_id: int) -> str: ...\n    def decode(self, token: str) -> dict: ...\n```", ["run_tests"]),
+        ("Running tests (iteration 1)… adjusting token expiry handling.", ["run_tests"]),
+        ("Running tests (iteration 2)… fixing refresh token logic.", ["run_tests"]),
+        ("Running tests (iteration 3)… edge case: expired token during refresh.", ["run_tests"]),
+        ("All core tests pass. Adding middleware integration.", []),
+        ("Test failure: refresh endpoint missing. Adding it now.", ["read_file"]),
+        ("Adding refresh token endpoint.", ["run_tests"]),
+        ("Updating middleware to validate JWT on every request.", ["search_code"]),
+        ("Writing integration tests for the new auth flow.", ["query_database"]),
+        ("Fixing edge case: expired token during refresh.", []),
+        ("Updating documentation strings.", ["run_tests"]),
+        ("Running full test suite.", ["search_code"]),
+        ("Addressing review comments on the PR.", []),
+        ("Squashing migrations into a single file.", ["run_tests"]),
+        ("Final cleanup pass — removing dead session code.", []),
+        ("All tests green. Preparing summary.", []),
+    ]
+
+    for i in range(30):
+        ts = base_time + timedelta(minutes=i * 2)
+
+        if i == 0:
+            messages = [
+                {"role": "user", "content": "Help me refactor the authentication module to use JWT tokens."},
+                {"role": "assistant", "content": steps[0][0]},
+            ]
+            tool_calls = steps[0][1]
+        elif i == 1:
+            messages = messages + [
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tu_001", "content": _SEARCH_RESULT}]},
+                {"role": "assistant", "content": steps[1][0]},
+            ]
+            tool_calls = steps[1][1]
+        elif i < len(steps):
+            messages = messages + [
+                {"role": "user", "content": _REPEAT_PREFIX},
+                {"role": "assistant", "content": steps[i][0]},
+            ]
+            tool_calls = steps[i][1]
+        else:
+            messages = messages + [
+                {"role": "user", "content": _REPEAT_PREFIX},
+                {"role": "assistant", "content": f"Wrap-up turn {i}: finalizing JWT auth migration. All changes merged."},
+            ]
+            tool_calls = []
+
+        system_tok = len(_SYSTEM_PROMPT) // 4
+        tools_tok = sum(len(json.dumps(t)) // 4 for t in _TOOL_SCHEMAS)
+        msgs_tok = sum(len(json.dumps(m)) // 4 for m in messages)
+
+        turns.append({
+            "turn_index": i,
+            "timestamp": ts.isoformat(),
+            "model": "claude-3-5-sonnet-20241022",
+            "provider": "anthropic",
+            "total_tokens": system_tok + tools_tok + msgs_tok,
+            "tool_names_defined": [t["name"] for t in _TOOL_SCHEMAS],
+            "tool_names_called": tool_calls,
+            "raw_request": {
+                "model": "claude-3-5-sonnet-20241022",
+                "system": _SYSTEM_PROMPT,
+                "tools": _TOOL_SCHEMAS,
+                "messages": list(messages),
+            },
+        })
+
+    return {
+        "run_id": "demo-001",
+        "model": "claude-3-5-sonnet-20241022",
+        "provider": "anthropic",
+        "created_at": base_time.isoformat(),
+        "turns": turns,
+    }
 
 
 # ---------------------------------------------------------------------------
-# Analysis helpers — turn a Report into Gradio-friendly outputs
+# Report → Gradio components
 # ---------------------------------------------------------------------------
 
 
 def _summary_html(report: Report) -> str:
-    meta = report.trace
     rec_pct = (
         report.recoverable_tokens / report.total_tokens_billed * 100
-        if report.total_tokens_billed
-        else 0.0
+        if report.total_tokens_billed else 0.0
     )
-    return f"""
-<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:8px">
-  <div style="background:#1a202c;border:1px solid #2d3748;border-radius:8px;padding:12px 20px;min-width:130px">
-    <div style="color:#718096;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Run ID</div>
-    <div style="color:#f7fafc;font-size:1.1rem;font-weight:700">{meta.run_id}</div>
-  </div>
-  <div style="background:#1a202c;border:1px solid #2d3748;border-radius:8px;padding:12px 20px;min-width:130px">
-    <div style="color:#718096;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Model</div>
-    <div style="color:#f7fafc;font-size:1.1rem;font-weight:700">{meta.model}</div>
-  </div>
-  <div style="background:#1a202c;border:1px solid #2d3748;border-radius:8px;padding:12px 20px;min-width:130px">
-    <div style="color:#718096;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Turns</div>
-    <div style="color:#f7fafc;font-size:1.1rem;font-weight:700">{len(meta.turns)}</div>
-  </div>
-  <div style="background:#1a202c;border:1px solid #2d3748;border-radius:8px;padding:12px 20px;min-width:130px">
-    <div style="color:#718096;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Total Tokens</div>
-    <div style="color:#fbd38d;font-size:1.1rem;font-weight:700">{report.total_tokens_billed:,}</div>
-  </div>
-  <div style="background:#1a202c;border:1px solid #2d3748;border-radius:8px;padding:12px 20px;min-width:130px">
-    <div style="color:#718096;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Total Cost</div>
-    <div style="color:#fbd38d;font-size:1.1rem;font-weight:700">${report.total_cost_usd:.4f}</div>
-  </div>
-  <div style="background:#742a2a;border:1px solid #fc8181;border-radius:8px;padding:12px 20px;min-width:130px">
-    <div style="color:#fc8181;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Recoverable Waste</div>
-    <div style="color:#fc8181;font-size:1.1rem;font-weight:700">${report.recoverable_cost_usd:.4f} ({rec_pct:.1f}%)</div>
-  </div>
-  <div style="background:#1a202c;border:1px solid #2d3748;border-radius:8px;padding:12px 20px;min-width:130px">
-    <div style="color:#718096;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">Findings</div>
-    <div style="color:#68d391;font-size:1.1rem;font-weight:700">{len(report.findings)}</div>
-  </div>
-</div>
-"""
+    n_high = sum(1 for f in report.findings if f.severity == "high")
+    n_med  = sum(1 for f in report.findings if f.severity == "medium")
+    n_low  = sum(1 for f in report.findings if f.severity == "low")
+
+    card = lambda label, value, color="#f7fafc": (
+        f'<div style="background:#1a202c;border:1px solid #2d3748;border-radius:8px;'
+        f'padding:12px 20px;min-width:130px;flex:1">'
+        f'<div style="color:#718096;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em">{label}</div>'
+        f'<div style="color:{color};font-size:1.2rem;font-weight:700;margin-top:4px">{value}</div></div>'
+    )
+
+    return (
+        '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:4px">'
+        + card("Run ID", report.trace.run_id)
+        + card("Model", report.trace.model[:28])
+        + card("Turns", len(report.trace.turns))
+        + card("Total Tokens", f"{report.total_tokens_billed:,}", "#fbd38d")
+        + card("Total Cost", f"${report.total_cost_usd:.4f}", "#fbd38d")
+        + card("Recoverable Waste", f"${report.recoverable_cost_usd:.4f} ({rec_pct:.1f}%)", "#fc8181")
+        + card("Findings", f"{n_high}H / {n_med}M / {n_low}L", "#68d391")
+        + "</div>"
+    )
 
 
 def _region_df(report: Report) -> pd.DataFrame:
     rows = []
     for rs in report.region_summaries:
-        bar = "#" * round(rs.fraction * 20) + "." * (20 - round(rs.fraction * 20))
-        rows.append(
-            {
-                "Region": rs.region.value,
-                "Tokens": f"{rs.total_tokens:,}",
-                "Cost (USD)": f"${rs.total_cost_usd:.5f}",
-                "Share": f"{rs.fraction * 100:.1f}%",
-                "Visual": bar,
-            }
-        )
-    return pd.DataFrame(rows)
+        filled = round(rs.fraction * 20)
+        bar = "#" * filled + "." * (20 - filled)
+        rows.append({
+            "Region": rs.region.value,
+            "Tokens": f"{rs.total_tokens:,}",
+            "Cost (USD)": f"${rs.total_cost_usd:.5f}",
+            "Share": f"{rs.fraction * 100:.1f}%",
+            "Visual": bar,
+        })
+    return pd.DataFrame(rows) if rows else pd.DataFrame(
+        columns=["Region", "Tokens", "Cost (USD)", "Share", "Visual"]
+    )
 
 
 def _findings_df(report: Report) -> pd.DataFrame:
     rows = []
     for i, f in enumerate(report.findings_by_severity(), 1):
-        rows.append(
-            {
-                "#": i,
-                "Type": f.kind.value,
-                "Severity": f.severity.upper(),
-                "Wasted Tokens": f"{f.wasted_tokens:,}",
-                "Wasted Cost": f"${f.wasted_cost_usd:.5f}",
-                "Turns": f"{f.first_seen_turn}–{f.last_seen_turn}",
-                "Description": f.description[:120],
-                "Fix": f.fix[:100],
-            }
-        )
-    if not rows:
-        return pd.DataFrame(
-            columns=["#", "Type", "Severity", "Wasted Tokens", "Wasted Cost", "Turns", "Description", "Fix"]
-        )
-    return pd.DataFrame(rows)
+        rows.append({
+            "#": i,
+            "Type": f.kind.value,
+            "Severity": f.severity.upper(),
+            "Wasted Tokens": f"{f.wasted_tokens:,}",
+            "Wasted Cost": f"${f.wasted_cost_usd:.5f}",
+            "Turns": f"{f.first_seen_turn}–{f.last_seen_turn}",
+            "Description": f.description[:100],
+            "Fix": f.fix[:90],
+        })
+    cols = ["#", "Type", "Severity", "Wasted Tokens", "Wasted Cost", "Turns", "Description", "Fix"]
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=cols)
 
 
 def _rebilling_df(report: Report) -> pd.DataFrame:
     rows = []
     for e in report.rebilling_entries[:20]:
-        rows.append(
-            {
-                "Region": e.region.value,
-                "Preview": e.content_preview[:80],
-                "Tokens/Turn": f"{e.token_count:,}",
-                "Turns Present": e.turns_present,
-                "Cumul. Tokens": f"{e.cumulative_tokens:,}",
-                "Cumul. Cost": f"${e.cumulative_cost_usd:.5f}",
-            }
-        )
-    return pd.DataFrame(rows)
+        rows.append({
+            "Region": e.region.value,
+            "Preview": e.content_preview[:70],
+            "Tokens/Turn": f"{e.token_count:,}",
+            "Turns": e.turns_present,
+            "Cumul. Tokens": f"{e.cumulative_tokens:,}",
+            "Cumul. Cost": f"${e.cumulative_cost_usd:.5f}",
+        })
+    cols = ["Region", "Preview", "Tokens/Turn", "Turns", "Cumul. Tokens", "Cumul. Cost"]
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=cols)
 
 
-def _html_report_file(report: Report) -> str:
-    """Write HTML report to a temp file and return the path."""
+def _html_file(report: Report) -> str:
     html = render_html_report(report)
     tmp = tempfile.NamedTemporaryFile(
         suffix=".html", delete=False, mode="w", encoding="utf-8", prefix="contextlens_"
@@ -146,181 +322,159 @@ def _html_report_file(report: Report) -> str:
 def _run_analysis(trace_dict: dict) -> tuple:
     trace = _dict_to_trace(trace_dict)
     report = analyze_trace(trace)
-    summary = _summary_html(report)
-    region_df = _region_df(report)
-    findings_df = _findings_df(report)
-    rebilling_df = _rebilling_df(report)
-    html_path = _html_report_file(report)
-    return summary, region_df, findings_df, rebilling_df, html_path
+    return (
+        _summary_html(report),
+        _region_df(report),
+        _rebilling_df(report),
+        _findings_df(report),
+        _html_file(report),
+    )
+
+
+_EMPTY = pd.DataFrame()
 
 
 # ---------------------------------------------------------------------------
-# Tab actions
+# Gradio action functions
 # ---------------------------------------------------------------------------
 
 
 def run_demo() -> tuple:
-    """Run the built-in 30-turn canned demo."""
-    trace_dict = build_demo_trace()
-    return _run_analysis(trace_dict)
+    if not _IMPORT_OK:
+        err_html = f"<pre style='color:#fc8181'>Import error:\n{_IMPORT_ERROR}</pre>"
+        return err_html, _EMPTY, _EMPTY, _EMPTY, None
+    try:
+        trace_dict = _build_demo_trace()
+        return _run_analysis(trace_dict)
+    except Exception:
+        err_html = f"<pre style='color:#fc8181'>{traceback.format_exc()}</pre>"
+        return err_html, _EMPTY, _EMPTY, _EMPTY, None
 
 
 def analyze_upload(file) -> tuple:
-    """Analyze a user-uploaded trace JSON file."""
+    if not _IMPORT_OK:
+        err_html = f"<pre style='color:#fc8181'>Import error:\n{_IMPORT_ERROR}</pre>"
+        return err_html, _EMPTY, _EMPTY, _EMPTY, None
     if file is None:
-        empty = pd.DataFrame()
         return (
-            "<p style='color:#fc8181'>Please upload a trace JSON file.</p>",
-            empty, empty, empty, None,
+            "<p style='color:#fc8181'>Please upload a trace JSON file first.</p>",
+            _EMPTY, _EMPTY, _EMPTY, None,
         )
     try:
-        with open(file.name, encoding="utf-8") as f:
+        path = file.name if hasattr(file, "name") else str(file)
+        with open(path, encoding="utf-8") as f:
             trace_dict = json.load(f)
         return _run_analysis(trace_dict)
-    except Exception as e:
-        empty = pd.DataFrame()
-        return (
-            f"<p style='color:#fc8181'>Error parsing trace: {e}</p>",
-            empty, empty, empty, None,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Result block — shared between both tabs
-# ---------------------------------------------------------------------------
-
-
-def _result_block() -> list:
-    """Return a list of Gradio components used to display results."""
-    summary_html = gr.HTML(label="Summary")
-    with gr.Tabs():
-        with gr.Tab("Region Breakdown"):
-            region_table = gr.Dataframe(
-                label="Tokens by Region",
-                interactive=False,
-                wrap=True,
-            )
-        with gr.Tab("Re-Billing (Top 20)"):
-            rebilling_table = gr.Dataframe(
-                label="Most Expensive Repeated Blocks",
-                interactive=False,
-                wrap=True,
-            )
-        with gr.Tab("Waste Findings"):
-            findings_table = gr.Dataframe(
-                label="Ranked Waste Findings",
-                interactive=False,
-                wrap=True,
-            )
-    html_file = gr.File(label="Download Interactive HTML Report", file_types=[".html"])
-    return [summary_html, region_table, rebilling_table, findings_table, html_file]
+    except Exception:
+        err_html = f"<pre style='color:#fc8181'>{traceback.format_exc()}</pre>"
+        return err_html, _EMPTY, _EMPTY, _EMPTY, None
 
 
 # ---------------------------------------------------------------------------
 # Gradio UI
 # ---------------------------------------------------------------------------
 
-CSS = """
-body { background: #0f1117 !important; }
-.gradio-container { max-width: 1200px; margin: 0 auto; }
-h1 { color: #f7fafc; }
-.gr-form { background: #1a202c !important; border: 1px solid #2d3748 !important; }
-footer { display: none !important; }
-"""
-
-DESCRIPTION = """
-## ContextLens — Context Window Diagnostic Profiler
-
-**py-spy / pprof, but for what's inside your prompt.**
-
-In multi-turn agent loops every call re-sends the full context. ContextLens decomposes the window,
-tracks re-billing cost over turns, and surfaces waste as ranked findings with dollar costs and concrete fixes.
-
-**Five waste detectors:** Duplicate content · Near-duplicate (Jaccard) · Stale tool results · Unused tool schemas · Redundant retrieval chunks
-
----
-"""
-
 TRACE_FORMAT_HELP = """
 ### Trace JSON format
 
-Your trace should be a JSON object with this structure:
-
-```json
-{
-  "run_id": "my-run-001",
-  "model": "claude-3-5-sonnet-20241022",
-  "provider": "anthropic",
-  "turns": [
-    {
-      "turn_index": 0,
-      "model": "claude-3-5-sonnet-20241022",
-      "provider": "anthropic",
-      "total_tokens": 1200,
-      "tool_names_defined": ["search_code"],
-      "tool_names_called": ["search_code"],
-      "raw_request": {
-        "system": "You are helpful.",
-        "tools": [...],
-        "messages": [...]
-      }
-    }
-  ]
-}
-```
-
-**Capture automatically** using the Python SDK:
+Capture automatically from your agent:
 ```python
+pip install contextlens
+
 import contextlens as cl
-with cl.capture_anthropic(client) as collector:
-    # ... your agent loop ...
-collector.save("trace.json")
+
+# Anthropic
+with cl.capture_anthropic(client) as col:
+    # your agent loop
+col.save("trace.json")
+
+# OpenAI
+with cl.capture_openai(client) as col:
+    # your agent loop
+col.save("trace.json")
 ```
+
+Or build a trace dict manually — each turn needs:
+`turn_index`, `model`, `provider`, `tool_names_defined`,
+`tool_names_called`, `raw_request` (with `messages`, `system`, `tools`).
 """
 
-with gr.Blocks(css=CSS, title="ContextLens — LLM Context Profiler") as demo:
-    gr.Markdown(DESCRIPTION)
+with gr.Blocks(
+    title="ContextLens — LLM Context Profiler",
+    theme=gr.themes.Base(
+        primary_hue="orange",
+        neutral_hue="slate",
+    ),
+) as demo:
+
+    gr.Markdown(
+        """
+# ContextLens 🔬
+### Diagnostic profiler for LLM agent context windows — *py-spy / pprof, but for what's inside your prompt*
+
+In multi-turn agent loops **the full context is re-sent on every API call**.
+ContextLens decomposes the window, tracks re-billing cost per block across turns,
+and surfaces waste as ranked findings with dollar costs and one-line fixes.
+
+**Five waste detectors:** Duplicate · Near-duplicate (Jaccard ≥ 0.85) · Stale tool results · Unused tool schemas · Redundant retrieval chunks
+
+[![GitHub](https://img.shields.io/badge/GitHub-HarshalSant%2Fcontextlens-black?logo=github)](https://github.com/HarshalSant/contextlens)
+&nbsp;`pip install contextlens`
+---
+"""
+    )
 
     with gr.Tabs():
 
-        # ---- Tab 1: Built-in demo ----------------------------------------
-        with gr.Tab("Live Demo (no upload needed)"):
+        # ── Tab 1: Live demo ──────────────────────────────────────────────
+        with gr.Tab("🚀 Live Demo  (no upload needed)"):
             gr.Markdown(
-                "Runs a simulated **30-turn agent loop** (JWT migration task) with canned data. "
-                "Designed to trigger all five waste detectors. No API key or file needed."
+                "Simulates a **30-turn JWT-migration agent loop** with canned data. "
+                "Designed to fire all five waste detectors. Click once — no API key or file needed."
             )
-            demo_btn = gr.Button("Run Demo Analysis", variant="primary", size="lg")
-            demo_outputs = _result_block()
+            demo_btn = gr.Button("▶  Run Demo Analysis", variant="primary", size="lg")
+            demo_summary = gr.HTML(label="Run Summary")
+            with gr.Tabs():
+                with gr.Tab("Region Breakdown"):
+                    demo_region = gr.Dataframe(interactive=False, wrap=True)
+                with gr.Tab("Re-Billing Top 20"):
+                    demo_rebill = gr.Dataframe(interactive=False, wrap=True)
+                with gr.Tab("Waste Findings"):
+                    demo_findings = gr.Dataframe(interactive=False, wrap=True)
+            demo_file = gr.File(label="Download Interactive HTML Report (.html)", file_types=[".html"])
+
             demo_btn.click(
                 fn=run_demo,
                 inputs=[],
-                outputs=demo_outputs,
+                outputs=[demo_summary, demo_region, demo_rebill, demo_findings, demo_file],
             )
 
-        # ---- Tab 2: Upload your own trace ---------------------------------
-        with gr.Tab("Analyze Your Trace"):
+        # ── Tab 2: Upload trace ───────────────────────────────────────────
+        with gr.Tab("📂 Analyze Your Trace"):
             with gr.Row():
                 with gr.Column(scale=1):
-                    upload = gr.File(
-                        label="Upload trace JSON",
-                        file_types=[".json"],
-                    )
+                    upload = gr.File(label="Upload trace.json", file_types=[".json"])
                     analyze_btn = gr.Button("Analyze", variant="primary")
                     gr.Markdown(TRACE_FORMAT_HELP)
                 with gr.Column(scale=2):
-                    upload_outputs = _result_block()
+                    up_summary  = gr.HTML(label="Run Summary")
+                    with gr.Tabs():
+                        with gr.Tab("Region Breakdown"):
+                            up_region = gr.Dataframe(interactive=False, wrap=True)
+                        with gr.Tab("Re-Billing Top 20"):
+                            up_rebill = gr.Dataframe(interactive=False, wrap=True)
+                        with gr.Tab("Waste Findings"):
+                            up_findings = gr.Dataframe(interactive=False, wrap=True)
+                    up_file = gr.File(label="Download Interactive HTML Report", file_types=[".html"])
 
             analyze_btn.click(
                 fn=analyze_upload,
                 inputs=[upload],
-                outputs=upload_outputs,
+                outputs=[up_summary, up_region, up_rebill, up_findings, up_file],
             )
 
-    gr.Markdown(
-        "---\n"
-        "**[GitHub](https://github.com/HarshalSant/contextlens)** | "
-        "`pip install contextlens` | MIT License"
-    )
+    gr.Markdown("---\nMIT License · [GitHub](https://github.com/HarshalSant/contextlens) · `pip install contextlens`")
+
 
 if __name__ == "__main__":
     demo.launch()

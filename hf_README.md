@@ -1,8 +1,8 @@
 ---
 title: ContextLens
 emoji: 🔬
-colorFrom: blue
-colorTo: purple
+colorFrom: orange
+colorTo: blue
 sdk: gradio
 sdk_version: 5.9.1
 app_file: app.py
@@ -39,22 +39,22 @@ In multi-turn agent loops, the **full context is re-sent on every API call**. A 
 | **Unused Tool Schema** | Tool defined every turn but never called |
 | **Redundant Retrieval** | Retrieved chunk with <15% overlap with model output |
 
-## How to use this Space
+## How to use
 
-**Tab 1 — Live Demo:** Click "Run Demo Analysis" to analyze a simulated 30-turn agent loop (JWT migration task). No file or API key needed. Fires all five detectors.
+**Tab 1 — Live Demo:** Click "Run Demo Analysis". No file or API key needed. Fires all five detectors on a simulated 30-turn JWT migration agent loop.
 
-**Tab 2 — Analyze Your Trace:** Upload a `trace.json` captured from your own agent run using the Python SDK:
+**Tab 2 — Analyze Your Trace:** Upload a `trace.json` captured from your own agent:
 
 ```python
 pip install contextlens
 
 import contextlens as cl
-with cl.capture_anthropic(client, model="claude-3-5-sonnet-20241022") as collector:
-    # ... your agent loop ...
+with cl.capture_anthropic(client) as collector:
+    # your agent loop here
 collector.save("trace.json")
 ```
 
-Then upload the saved file here.
+Then upload and analyze.
 
 ## Links
 
