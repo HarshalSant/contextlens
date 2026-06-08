@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "contextlens"
+name = "contextlens-profiler"
 version = "0.1.0"
 description = "A diagnostic profiler for LLM agent context windows — flamegraph for your prompt."
 readme = "README.md"

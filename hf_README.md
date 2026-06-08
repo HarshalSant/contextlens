@@ -46,7 +46,7 @@ In multi-turn agent loops, the **full context is re-sent on every API call**. A 
 **Tab 2 — Analyze Your Trace:** Upload a `trace.json` captured from your own agent:
 
 ```python
-pip install contextlens
+pip install contextlens-profiler
 
 import contextlens as cl
 with cl.capture_anthropic(client) as collector:
@@ -59,5 +59,5 @@ Then upload and analyze.
 ## Links
 
 - **GitHub:** https://github.com/HarshalSant/contextlens
-- **Install:** `pip install contextlens`
+- **Install:** `pip install contextlens-profiler`
 - **License:** MIT

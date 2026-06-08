@@ -32,7 +32,7 @@ ContextLens is the **flamegraph** for this: it decomposes the window, shows re-b
 ## Install
 
 ```bash
-pip install contextlens
+pip install contextlens-profiler
 ```
 
 Or from source:
