@@ -23,7 +23,9 @@ def _make_trace_with_repeated_block() -> Trace:
             },
         )
         turns.append(snap)
-    trace = Trace(run_id="test-001", model="claude-3-5-sonnet-20241022", provider="anthropic", turns=turns)
+    trace = Trace(
+        run_id="test-001", model="claude-3-5-sonnet-20241022", provider="anthropic", turns=turns
+    )
     decompose_trace_turns(trace.turns)
     return trace
 

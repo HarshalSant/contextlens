@@ -171,12 +171,20 @@ def _decompose_openai(
 
         elif role == "user":
             if isinstance(content, str):
-                region = Region.RETRIEVED_CONTENT if _looks_like_retrieval(content) else Region.USER_MESSAGE
+                region = (
+                    Region.RETRIEVED_CONTENT
+                    if _looks_like_retrieval(content)
+                    else Region.USER_MESSAGE
+                )
                 blocks.append(_make_block(region, content, turn_index, model))
             elif isinstance(content, list):
                 for part in content:
                     text = part.get("text", "") if isinstance(part, dict) else str(part)
-                    region = Region.RETRIEVED_CONTENT if _looks_like_retrieval(text) else Region.USER_MESSAGE
+                    region = (
+                        Region.RETRIEVED_CONTENT
+                        if _looks_like_retrieval(text)
+                        else Region.USER_MESSAGE
+                    )
                     blocks.append(_make_block(region, text, turn_index, model))
 
         elif role == "assistant":

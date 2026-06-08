@@ -116,8 +116,7 @@ def _detect_near_duplicates(trace: Trace, cm: CostModel) -> list[Finding]:
             if (
                 block.token_count >= MIN_TOKENS
                 and block.content_hash not in seen_hashes
-                and block.region
-                not in (Region.TOOL_SCHEMA, Region.SYSTEM)
+                and block.region not in (Region.TOOL_SCHEMA, Region.SYSTEM)
             ):
                 seen_hashes.add(block.content_hash)
                 candidates.append(block)
@@ -204,7 +203,8 @@ def detect_stale_tool_results(trace: Trace, cm: CostModel) -> list[Finding]:
         if not referenced:
             # Count how many turns it persisted (how many later turns carry it)
             later_turns_with_result = sum(
-                1 for t in trace.turns
+                1
+                for t in trace.turns
                 if t.turn_index > tr_block.turn_index
                 and any(b.content_hash == tr_block.content_hash for b in t.blocks)
             )
@@ -229,7 +229,9 @@ def detect_stale_tool_results(trace: Trace, cm: CostModel) -> list[Finding]:
                     wasted_cost_usd=wasted_cost,
                     affected_block_ids=[tr_block.block_id],
                     first_seen_turn=tr_block.turn_index,
-                    last_seen_turn=trace.turns[-1].turn_index if trace.turns else tr_block.turn_index,
+                    last_seen_turn=trace.turns[-1].turn_index
+                    if trace.turns
+                    else tr_block.turn_index,
                 )
             )
 
@@ -342,7 +344,8 @@ def detect_redundant_retrieval(trace: Trace, cm: CostModel) -> list[Finding]:
             if overlap_ratio < 0.15 and block.token_count > 100:
                 # Count how many future turns carry this chunk
                 future_turns = sum(
-                    1 for t in trace.turns
+                    1
+                    for t in trace.turns
                     if t.turn_index >= turn.turn_index
                     and any(b.content_hash == block.content_hash for b in t.blocks)
                 )
@@ -367,7 +370,9 @@ def detect_redundant_retrieval(trace: Trace, cm: CostModel) -> list[Finding]:
                         wasted_cost_usd=wasted_cost,
                         affected_block_ids=[block.block_id],
                         first_seen_turn=turn.turn_index,
-                        last_seen_turn=trace.turns[-1].turn_index if trace.turns else turn.turn_index,
+                        last_seen_turn=trace.turns[-1].turn_index
+                        if trace.turns
+                        else turn.turn_index,
                     )
                 )
 
@@ -378,19 +383,107 @@ def detect_redundant_retrieval(trace: Trace, cm: CostModel) -> list[Finding]:
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-_STOP_WORDS = frozenset([
-    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "shall", "can", "to", "of", "in", "on", "at",
-    "for", "with", "by", "from", "up", "about", "into", "through", "during",
-    "before", "after", "above", "below", "between", "each", "than", "so",
-    "but", "and", "or", "not", "this", "that", "these", "those", "i", "you",
-    "he", "she", "it", "we", "they", "them", "their", "its", "his", "her",
-    "our", "your", "my", "what", "which", "who", "when", "where", "how",
-    "all", "any", "both", "few", "more", "most", "other", "some", "such",
-    "no", "only", "own", "same", "as", "very", "just", "because", "if",
-    "while", "since", "although", "though",
-])
+_STOP_WORDS = frozenset(
+    [
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "shall",
+        "can",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "for",
+        "with",
+        "by",
+        "from",
+        "up",
+        "about",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "between",
+        "each",
+        "than",
+        "so",
+        "but",
+        "and",
+        "or",
+        "not",
+        "this",
+        "that",
+        "these",
+        "those",
+        "i",
+        "you",
+        "he",
+        "she",
+        "it",
+        "we",
+        "they",
+        "them",
+        "their",
+        "its",
+        "his",
+        "her",
+        "our",
+        "your",
+        "my",
+        "what",
+        "which",
+        "who",
+        "when",
+        "where",
+        "how",
+        "all",
+        "any",
+        "both",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "no",
+        "only",
+        "own",
+        "same",
+        "as",
+        "very",
+        "just",
+        "because",
+        "if",
+        "while",
+        "since",
+        "although",
+        "though",
+    ]
+)
 
 
 def _extract_keywords(text: str, min_len: int = 4) -> set[str]:

@@ -15,7 +15,9 @@ from .models import Trace, TurnSnapshot
 class TraceCollector:
     """Accumulates TurnSnapshots; used by both live and offline paths."""
 
-    def __init__(self, model: str = "unknown", provider: str = "unknown", run_id: str | None = None) -> None:
+    def __init__(
+        self, model: str = "unknown", provider: str = "unknown", run_id: str | None = None
+    ) -> None:
         self.run_id = run_id or str(uuid.uuid4())[:8]
         self.model = model
         self.provider = provider
@@ -96,7 +98,9 @@ class OpenAICapture:
 
 
 @contextmanager
-def capture_anthropic(client: Any, model: str | None = None) -> Generator[TraceCollector, None, None]:
+def capture_anthropic(
+    client: Any, model: str | None = None
+) -> Generator[TraceCollector, None, None]:
     """Context manager that intercepts all Anthropic messages.create calls.
 
     Example::
@@ -193,9 +197,7 @@ def _openai_request_to_snapshot(
                 if hasattr(tc, "function"):
                     tool_names_called.append(tc.function.name)
 
-    tool_names_defined = [
-        t.get("function", {}).get("name", "") for t in kwargs.get("tools", [])
-    ]
+    tool_names_defined = [t.get("function", {}).get("name", "") for t in kwargs.get("tools", [])]
 
     total_tokens = 0
     if hasattr(response, "usage") and response.usage:

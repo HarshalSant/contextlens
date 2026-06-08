@@ -26,7 +26,9 @@ def _simple_trace() -> Trace:
         )
         for i in range(5)
     ]
-    return Trace(run_id="int-test", model="claude-3-5-sonnet-20241022", provider="anthropic", turns=turns)
+    return Trace(
+        run_id="int-test", model="claude-3-5-sonnet-20241022", provider="anthropic", turns=turns
+    )
 
 
 def test_report_has_region_summaries() -> None:

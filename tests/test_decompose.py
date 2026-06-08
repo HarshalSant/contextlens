@@ -1,8 +1,9 @@
 """Tests for the decompose module."""
 
+from datetime import datetime
+
 from contextlens.decompose import decompose_snapshot
 from contextlens.models import Region, TurnSnapshot
-from datetime import datetime
 
 
 def _make_snap(raw_request: dict, provider: str = "anthropic") -> TurnSnapshot:
@@ -38,9 +39,7 @@ def test_tool_schema_extracted() -> None:
 
 
 def test_user_message_extracted() -> None:
-    snap = _make_snap({
-        "messages": [{"role": "user", "content": "Hello, world!"}]
-    })
+    snap = _make_snap({"messages": [{"role": "user", "content": "Hello, world!"}]})
     blocks = decompose_snapshot(snap)
     user_blocks = [b for b in blocks if b.region == Region.USER_MESSAGE]
     assert len(user_blocks) == 1
@@ -48,28 +47,36 @@ def test_user_message_extracted() -> None:
 
 
 def test_assistant_message_extracted() -> None:
-    snap = _make_snap({
-        "messages": [
-            {"role": "user", "content": "Hi"},
-            {"role": "assistant", "content": "Hello back!"},
-        ]
-    })
+    snap = _make_snap(
+        {
+            "messages": [
+                {"role": "user", "content": "Hi"},
+                {"role": "assistant", "content": "Hello back!"},
+            ]
+        }
+    )
     blocks = decompose_snapshot(snap)
     asst_blocks = [b for b in blocks if b.region == Region.ASSISTANT_MESSAGE]
     assert len(asst_blocks) == 1
 
 
 def test_tool_result_extracted() -> None:
-    snap = _make_snap({
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "tool_result", "tool_use_id": "tu_1", "content": "Result data here."}
-                ],
-            }
-        ]
-    })
+    snap = _make_snap(
+        {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "tu_1",
+                            "content": "Result data here.",
+                        }
+                    ],
+                }
+            ]
+        }
+    )
     blocks = decompose_snapshot(snap)
     tr_blocks = [b for b in blocks if b.region == Region.TOOL_RESULT]
     assert len(tr_blocks) == 1
@@ -77,16 +84,23 @@ def test_tool_result_extracted() -> None:
 
 
 def test_tool_use_block_in_assistant() -> None:
-    snap = _make_snap({
-        "messages": [
-            {
-                "role": "assistant",
-                "content": [
-                    {"type": "tool_use", "id": "tu_2", "name": "search_code", "input": {"pattern": "foo"}},
-                ],
-            }
-        ]
-    })
+    snap = _make_snap(
+        {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "tu_2",
+                            "name": "search_code",
+                            "input": {"pattern": "foo"},
+                        },
+                    ],
+                }
+            ]
+        }
+    )
     blocks = decompose_snapshot(snap)
     asst_blocks = [b for b in blocks if b.region == Region.ASSISTANT_MESSAGE]
     assert len(asst_blocks) == 1
@@ -102,7 +116,9 @@ def test_content_hash_populated() -> None:
 
 
 def test_token_count_positive() -> None:
-    snap = _make_snap({"messages": [{"role": "user", "content": "Some text with a reasonable length"}]})
+    snap = _make_snap(
+        {"messages": [{"role": "user", "content": "Some text with a reasonable length"}]}
+    )
     blocks = decompose_snapshot(snap)
     for b in blocks:
         assert b.token_count > 0
@@ -147,7 +163,10 @@ def test_openai_tool_schema() -> None:
     snap = _make_snap(
         {
             "tools": [
-                {"type": "function", "function": {"name": "my_tool", "description": "Does something"}}
+                {
+                    "type": "function",
+                    "function": {"name": "my_tool", "description": "Does something"},
+                }
             ],
             "messages": [],
         },

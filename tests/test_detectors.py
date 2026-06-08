@@ -2,14 +2,14 @@
 
 from datetime import datetime
 
+from contextlens.costs import default_cost_model
 from contextlens.decompose import decompose_trace_turns
 from contextlens.detectors import (
     detect_duplicates,
     detect_stale_tool_results,
     detect_unused_tool_schemas,
 )
-from contextlens.costs import default_cost_model
-from contextlens.models import Region, Trace, TurnSnapshot, WasteKind
+from contextlens.models import Trace, TurnSnapshot, WasteKind
 
 
 def _trace(turns: list[TurnSnapshot]) -> Trace:
@@ -68,8 +68,7 @@ def test_unique_content_not_flagged() -> None:
     dup_findings = [f for f in findings if f.kind == WasteKind.DUPLICATE]
     # System prompt will be duplicated but user messages won't
     user_dup = [
-        f for f in dup_findings
-        if "Turn zero" in f.description or "Turn one" in f.description
+        f for f in dup_findings if "Turn zero" in f.description or "Turn one" in f.description
     ]
     assert len(user_dup) == 0
 
@@ -82,27 +81,45 @@ def test_unique_content_not_flagged() -> None:
 def test_stale_tool_result_detected() -> None:
     long_result = "tool result: " + "detailed database output row data " * 30
     turns = [
-        _snap(0, [
-            {
-                "role": "user",
-                "content": [{"type": "tool_result", "tool_use_id": "tu_1", "content": long_result}],
-            },
-            {"role": "assistant", "content": "I see, interesting."},
-        ]),
-        _snap(1, [
-            {
-                "role": "user",
-                "content": [{"type": "tool_result", "tool_use_id": "tu_1", "content": long_result}],
-            },
-            {"role": "assistant", "content": "Moving on to a completely unrelated topic now."},
-        ]),
-        _snap(2, [
-            {
-                "role": "user",
-                "content": [{"type": "tool_result", "tool_use_id": "tu_1", "content": long_result}],
-            },
-            {"role": "assistant", "content": "Discussing something else entirely different from before."},
-        ]),
+        _snap(
+            0,
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "tu_1", "content": long_result}
+                    ],
+                },
+                {"role": "assistant", "content": "I see, interesting."},
+            ],
+        ),
+        _snap(
+            1,
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "tu_1", "content": long_result}
+                    ],
+                },
+                {"role": "assistant", "content": "Moving on to a completely unrelated topic now."},
+            ],
+        ),
+        _snap(
+            2,
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "tu_1", "content": long_result}
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": "Discussing something else entirely different from before.",
+                },
+            ],
+        ),
     ]
     trace = _trace(turns)
     findings = detect_stale_tool_results(trace, default_cost_model)
@@ -113,13 +130,21 @@ def test_stale_tool_result_detected() -> None:
 def test_referenced_tool_result_not_stale() -> None:
     result_text = "The user account has status: active, email: test@example.com, plan: pro"
     turns = [
-        _snap(0, [
-            {
-                "role": "user",
-                "content": [{"type": "tool_result", "tool_use_id": "tu_2", "content": result_text}],
-            },
-            {"role": "assistant", "content": "The account status is active with email test@example.com on plan pro."},
-        ]),
+        _snap(
+            0,
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "tu_2", "content": result_text}
+                    ],
+                },
+                {
+                    "role": "assistant",
+                    "content": "The account status is active with email test@example.com on plan pro.",
+                },
+            ],
+        ),
     ]
     trace = _trace(turns)
     findings = detect_stale_tool_results(trace, default_cost_model)
@@ -134,16 +159,36 @@ def test_referenced_tool_result_not_stale() -> None:
 
 
 def test_unused_tool_schema_detected() -> None:
-    tool_used = {"name": "search_code", "description": "Search.", "input_schema": {"type": "object"}}
-    tool_unused = {"name": "send_email", "description": "Send email.", "input_schema": {"type": "object"}}
+    tool_used = {
+        "name": "search_code",
+        "description": "Search.",
+        "input_schema": {"type": "object"},
+    }
+    tool_unused = {
+        "name": "send_email",
+        "description": "Send email.",
+        "input_schema": {"type": "object"},
+    }
 
     turns = [
-        _snap(0, [{"role": "user", "content": "Do something."}],
-              tools=[tool_used, tool_unused], tool_calls_made=["search_code"]),
-        _snap(1, [{"role": "user", "content": "Continue."}],
-              tools=[tool_used, tool_unused], tool_calls_made=["search_code"]),
-        _snap(2, [{"role": "user", "content": "Finish."}],
-              tools=[tool_used, tool_unused], tool_calls_made=[]),
+        _snap(
+            0,
+            [{"role": "user", "content": "Do something."}],
+            tools=[tool_used, tool_unused],
+            tool_calls_made=["search_code"],
+        ),
+        _snap(
+            1,
+            [{"role": "user", "content": "Continue."}],
+            tools=[tool_used, tool_unused],
+            tool_calls_made=["search_code"],
+        ),
+        _snap(
+            2,
+            [{"role": "user", "content": "Finish."}],
+            tools=[tool_used, tool_unused],
+            tool_calls_made=[],
+        ),
     ]
     trace = _trace(turns)
     findings = detect_unused_tool_schemas(trace, default_cost_model)
@@ -154,15 +199,17 @@ def test_unused_tool_schema_detected() -> None:
 def test_used_tool_not_flagged() -> None:
     tool = {"name": "run_tests", "description": "Run tests.", "input_schema": {"type": "object"}}
     turns = [
-        _snap(0, [{"role": "user", "content": "Run tests please."}],
-              tools=[tool], tool_calls_made=["run_tests"]),
+        _snap(
+            0,
+            [{"role": "user", "content": "Run tests please."}],
+            tools=[tool],
+            tool_calls_made=["run_tests"],
+        ),
     ]
     trace = _trace(turns)
     findings = detect_unused_tool_schemas(trace, default_cost_model)
     assert not any(
-        "run_tests" in f.description
-        for f in findings
-        if f.kind == WasteKind.UNUSED_TOOL_SCHEMA
+        "run_tests" in f.description for f in findings if f.kind == WasteKind.UNUSED_TOOL_SCHEMA
     )
 
 

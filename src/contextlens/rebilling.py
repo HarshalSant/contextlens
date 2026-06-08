@@ -77,11 +77,7 @@ def compute_rebilling(
 
 def total_billed_tokens(trace: Trace) -> int:
     """Sum of all tokens across all turns — what you actually paid for."""
-    return sum(
-        block.token_count
-        for turn in trace.turns
-        for block in turn.blocks
-    )
+    return sum(block.token_count for turn in trace.turns for block in turn.blocks)
 
 
 def recoverable_tokens(rebilling_entries: list[RebillingEntry]) -> int:
