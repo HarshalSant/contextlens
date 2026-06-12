@@ -447,6 +447,7 @@ and surfaces waste as ranked findings with dollar costs and one-line fixes.
                 fn=run_demo,
                 inputs=[],
                 outputs=[demo_summary, demo_region, demo_rebill, demo_findings, demo_file],
+                api_name=False,
             )
 
         # ── Tab 2: Upload trace ───────────────────────────────────────────
@@ -471,6 +472,7 @@ and surfaces waste as ranked findings with dollar costs and one-line fixes.
                 fn=analyze_upload,
                 inputs=[upload],
                 outputs=[up_summary, up_region, up_rebill, up_findings, up_file],
+                api_name=False,
             )
 
     gr.Markdown("---\nMIT License · [GitHub](https://github.com/HarshalSant/contextlens) · `pip install contextlens`")
