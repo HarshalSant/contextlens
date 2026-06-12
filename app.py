@@ -399,13 +399,14 @@ Or build a trace dict manually — each turn needs:
 `tool_names_called`, `raw_request` (with `messages`, `system`, `tools`).
 """
 
-with gr.Blocks(
-    title="ContextLens — LLM Context Profiler",
-    theme=gr.themes.Base(
-        primary_hue="orange",
-        neutral_hue="slate",
-    ),
-) as demo:
+# Gradio 5/6 compatible theme setup
+_gradio_major = int(gr.__version__.split(".")[0])
+_theme = gr.themes.Base(primary_hue="orange", neutral_hue="slate")
+_blocks_kwargs: dict = {"title": "ContextLens — LLM Context Profiler"}
+if _gradio_major < 6:
+    _blocks_kwargs["theme"] = _theme
+
+with gr.Blocks(**_blocks_kwargs) as demo:
 
     gr.Markdown(
         """
@@ -418,8 +419,10 @@ and surfaces waste as ranked findings with dollar costs and one-line fixes.
 
 **Five waste detectors:** Duplicate · Near-duplicate (Jaccard ≥ 0.85) · Stale tool results · Unused tool schemas · Redundant retrieval chunks
 
+> **No API key needed. No file required. Click Run Demo to see live results.**
+
 [![GitHub](https://img.shields.io/badge/GitHub-HarshalSant%2Fcontextlens-black?logo=github)](https://github.com/HarshalSant/contextlens)
-&nbsp;`pip install contextlens`
+&nbsp;&nbsp;`pip install contextlens-profiler`
 ---
 """
     )
@@ -430,7 +433,8 @@ and surfaces waste as ranked findings with dollar costs and one-line fixes.
         with gr.Tab("🚀 Live Demo  (no upload needed)"):
             gr.Markdown(
                 "Simulates a **30-turn JWT-migration agent loop** with canned data. "
-                "Designed to fire all five waste detectors. Click once — no API key or file needed."
+                "Fires all five waste detectors. **Click the button below** — no API key, no file, no signup needed. "
+                "Results appear in ~2 seconds."
             )
             demo_btn = gr.Button("▶  Run Demo Analysis", variant="primary", size="lg")
             demo_summary = gr.HTML(label="Run Summary")
@@ -475,8 +479,15 @@ and surfaces waste as ranked findings with dollar costs and one-line fixes.
                 api_name=False,
             )
 
-    gr.Markdown("---\nMIT License · [GitHub](https://github.com/HarshalSant/contextlens) · `pip install contextlens`")
+    gr.Markdown(
+        "---\n"
+        "MIT License · [GitHub](https://github.com/HarshalSant/contextlens) · "
+        "`pip install contextlens-profiler` · Built with Python 3.11+"
+    )
 
 
 if __name__ == "__main__":
-    demo.launch()
+    _launch_kwargs: dict = {}
+    if _gradio_major >= 6:
+        _launch_kwargs["theme"] = _theme
+    demo.launch(**_launch_kwargs)
